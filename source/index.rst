@@ -11,3 +11,5 @@ docs documentation
    :caption: 目次:
 
    usage
+
+cached with make
