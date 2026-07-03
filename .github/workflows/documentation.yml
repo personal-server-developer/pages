@@ -31,6 +31,7 @@ jobs:
       - name: Build Sphinx HTML
         run: |
           # リポジトリルートに source/ と build/ がある想定
+          # source -> build/html に出力
           sphinx-build -b html source build/html
 
       - name: Upload Pages artifact
