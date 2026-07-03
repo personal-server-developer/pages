@@ -1,4 +1,4 @@
-name: Build and deploy Sphinx docs
+name: Build and deploy Sphinx docs (cached, Makefile)
 
 on:
   push:
@@ -10,33 +10,78 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  PYTHON_VERSION: '3.x'
+  SPHINX_BUILD_DIR: build
+  SPHINX_HTML_DIR: build/html
+  SPHINX_SOURCE_DIR: source
+
 jobs:
   build:
-    name: Build Sphinx HTML
+    name: Build (with cache)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install sphinx sphinx_rtd_theme myst-parser
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install sphinx sphinx_rtd_theme myst-parser; fi
 
-      - name: Build Sphinx HTML
+      - name: Cache Sphinx doctrees (incremental build cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/.doctrees
+            .sphinx-cache
+          key: ${{ runner.os }}-sphinx-doctrees-${{ hashFiles('source/**', 'source/conf.py') }}
+          restore-keys: |
+            ${{ runner.os }}-sphinx-doctrees-
+
+      - name: Ensure build directories exist
         run: |
-          # リポジトリルートに source/ と build/ がある想定
-          # source -> build/html に出力
-          sphinx-build -b html source build/html
+          mkdir -p ${SPHINX_HTML_DIR}
+          mkdir -p build/.doctrees || true
+
+      - name: Build Sphinx via Makefile (incremental, parallel)
+        run: |
+          # Makefile の html ターゲットを使う（Makefile がリポジトリルートにある想定）
+          # 並列ビルドを有効にするため SPHINXOPTS を渡す
+          make html SPHINXOPTS="-j auto"
+
+      - name: Diagnostics - list files and sizes
+        run: |
+          echo "=== build/html top-level ==="
+          ls -la build || true
+          ls -la build/html || true
+          echo "=== size summary ==="
+          du -sh build/html || true
+          echo "=== index.html head (if exists) ==="
+          if [ -f build/html/index.html ]; then head -n 40 build/html/index.html; else echo 'index.html not found'; fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          path: build/html
+
+      - name: Upload build artifact for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: sphinx-build-html
           path: build/html
 
   deploy:
